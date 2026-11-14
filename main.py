@@ -251,25 +251,33 @@ def show_all_dates(chat_id):
             bot.send_message(chat_id, "Сейчас нет поездок со свободными местами. Выберите маршрут через /tours, чтобы оставить заявку на другую дату.")
             return
 
-        # Сортировка: сначала дата, затем название маршрута, затем время.
+        # Сортировка по дате, затем по названию маршрута и времени.
         available_departures.sort(key=lambda item: (
             str(item["departure"]["departure_date"]),
             item["route_name"].casefold(),
             item["time"]
         ))
 
-        lines = ["Доступные поездки:"]
+        month_names = {
+            "01": "января", "02": "февраля", "03": "марта",
+            "04": "апреля", "05": "мая", "06": "июня",
+            "07": "июля", "08": "августа", "09": "сентября",
+            "10": "октября", "11": "ноября", "12": "декабря"
+        }
+
+        lines = ["ДОСТУПНЫЕ ПОЕЗДКИ"]
         keyboard = types.InlineKeyboardMarkup(row_width=1)
         current_date = None
 
         for item in available_departures:
             departure = item["departure"]
             departure_date = str(departure["departure_date"])
-            date_label = ".".join(reversed(departure_date.split("-")))
+            year, month, day = departure_date.split("-")
+            date_label = f"{int(day)} {month_names[month]}"
 
             if departure_date != current_date:
                 current_date = departure_date
-                lines.append(f"\n📅 {date_label}")
+                lines.append(f"\n{date_label}")
 
             route_name = item["route_name"]
             taken = item["taken"]
@@ -277,8 +285,8 @@ def show_all_dates(chat_id):
             time_text = f' · {item["time"]}' if item["time"] else ""
             prices_text = format_join_prices(departure["route_id"], taken, available)
             lines.append(
-                f"• {route_name}{time_text}\n"
-                f"  В группе: {taken}/4, свободно: {available}\n"
+                f"🏰 {route_name}{time_text}\n"
+                f"В группе: {taken}/4, свободно: {available}\n"
                 f"{prices_text}"
             )
             keyboard.add(types.InlineKeyboardButton(
@@ -286,7 +294,7 @@ def show_all_dates(chat_id):
                 callback_data=f'dep:{departure["id"]}'
             ))
 
-        bot.send_message(chat_id, "\n".join(lines), reply_markup=keyboard)
+        bot.send_message(chat_id, "\n\n".join(lines), reply_markup=keyboard)
     except Exception:
         print("ОШИБКА /dates при загрузке дат из Supabase:", flush=True)
         traceback.print_exc()
