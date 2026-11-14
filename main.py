@@ -219,6 +219,8 @@ def show_all_dates(chat_id):
             return
 
         lines = ["Доступные даты поездок:"]
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+
         for departure in departures:
             taken = get_taken_places(departure["id"])
             available = min(4, int(departure["capacity"])) - taken
@@ -234,16 +236,21 @@ def show_all_dates(chat_id):
                 f'• {route_name} — {departure["departure_date"]} {departure_time}; '
                 f'занято: {taken}/4, свободно: {available}; цена: {price_text}'
             )
+            keyboard.add(
+                types.InlineKeyboardButton(
+                    f"Присоединиться — {route_name}, {departure['departure_date']}",
+                    callback_data=f'dep:{departure["id"]}'
+                )
+            )
 
         if len(lines) == 1:
             bot.send_message(chat_id, "Сейчас нет поездок со свободными местами. Выберите маршрут через /tours, чтобы оставить заявку на другую дату.")
         else:
-            bot.send_message(chat_id, "\n".join(lines))
+            bot.send_message(chat_id, "\\n".join(lines), reply_markup=keyboard)
     except Exception:
         print("ОШИБКА /dates при загрузке дат из Supabase:", flush=True)
         traceback.print_exc()
         bot.send_message(chat_id, "Не удалось загрузить даты поездок. Попробуйте позже.")
-
 
 @bot.message_handler(commands=["dates"])
 def dates_command(message):
