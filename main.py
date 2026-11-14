@@ -106,6 +106,70 @@ def start(message):
     main_menu(message.chat.id)
 
 
+@bot.message_handler(commands=["tours"])
+def tours_command(message):
+    user_states.pop(message.from_user.id, None)
+    main_menu(message.chat.id)
+
+
+def show_all_dates(chat_id):
+    try:
+        result = (
+            db.table("departures")
+            .select("*")
+            .eq("is_active", True)
+            .gte("departure_date", str(date.today()))
+            .order("departure_date")
+            .execute()
+        )
+        departures = result.data or []
+
+        if not departures:
+            bot.send_message(chat_id, "Пока нет опубликованных дат поездок. Выберите маршрут через /tours или оставьте заявку на новую дату.")
+            return
+
+        lines = ["Доступные даты поездок:"]
+        for departure in departures:
+            taken = get_taken_places(departure["id"])
+            available = int(departure["capacity"]) - taken
+            if available <= 0:
+                continue
+
+            route = get_route(departure["route_id"])
+            route_name = route["name"] if route else "Экскурсия"
+            departure_time = departure.get("departure_time") or ""
+            lines.append(
+                f'• {route_name} — {departure["departure_date"]} {departure_time}; свободно мест: {available}'
+            )
+
+        if len(lines) == 1:
+            bot.send_message(chat_id, "Сейчас нет поездок со свободными местами. Выберите маршрут через /tours, чтобы оставить заявку на другую дату.")
+        else:
+            bot.send_message(chat_id, "\n".join(lines))
+    except Exception:
+        print("ОШИБКА /dates при загрузке дат из Supabase:", flush=True)
+        traceback.print_exc()
+        bot.send_message(chat_id, "Не удалось загрузить даты поездок. Попробуйте позже.")
+
+
+@bot.message_handler(commands=["dates"])
+def dates_command(message):
+    show_all_dates(message.chat.id)
+
+
+@bot.message_handler(commands=["help"])
+def help_command(message):
+    bot.send_message(
+        message.chat.id,
+        "Как пользоваться ботом:\n"
+        "/tours — посмотреть экскурсионные маршруты и выбрать поездку.\n"
+        "/dates — посмотреть опубликованные даты и свободные места.\n"
+        "Выберите маршрут, затем дату или оставьте заявку на новую дату. "
+        "Укажите количество туристов, имя и контакт для связи. "
+        "Организатор свяжется с вами для подтверждения."
+    )
+
+
 @bot.message_handler(commands=["admin"])
 def admin_menu(message):
     if not is_admin(message.from_user.id):
@@ -563,6 +627,16 @@ def webhook():
             elif command == "/admin":
                 print("Webhook: прямой вызов обработчика /admin.", flush=True)
                 admin_menu(update.message)
+            elif command == "/tours":
+                print("Webhook: прямой вызов обработчика /tours.", flush=True)
+                user_states.pop(update.message.from_user.id, None)
+                main_menu(update.message.chat.id)
+            elif command == "/dates":
+                print("Webhook: прямой вызов обработчика /dates.", flush=True)
+                show_all_dates(update.message.chat.id)
+            elif command == "/help":
+                print("Webhook: прямой вызов обработчика /help.", flush=True)
+                help_command(update.message)
             else:
                 bot.process_new_updates([update])
         else:
