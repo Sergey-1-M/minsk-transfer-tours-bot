@@ -66,6 +66,81 @@ def get_taken_places(departure_id):
     return sum(int(item["tourist_count"]) for item in (result.data or []))
 
 
+def get_group_price(route_id, group_size):
+    if group_size < 1 or group_size > 4:
+        return None
+    result = (
+        db.table("route_prices")
+        .select("price_per_person")
+        .eq("route_id", route_id)
+        .eq("group_size", group_size)
+        .limit(1)
+        .execute()
+    )
+    return int(result.data[0]["price_per_person"]) if result.data else None
+
+
+def notify_group_price(departure_id):
+    departure = get_departure(departure_id)
+    if not departure:
+        return
+    result = (
+        db.table("bookings")
+        .select("tourist_count, telegram_id")
+        .eq("departure_id", departure_id)
+        .in_("status", ["pending", "confirmed"])
+        .execute()
+    )
+    bookings = result.data or []
+    people = sum(int(item["tourist_count"]) for item in bookings)
+    if not people:
+        return
+    price = get_group_price(departure["route_id"], people)
+    if price is None:
+        print(f"Не найден тариф route_id={departure['route_id']}, group_size={people}", flush=True)
+        return
+    route = get_route(departure["route_id"])
+    route_name = route["name"] if route else "Экскурсия"
+    for item in bookings:
+        telegram_id = item.get("telegram_id")
+        if telegram_id:
+            try:
+                bot.send_message(
+                    int(telegram_id),
+                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\n"
+                    f"В группе: {people} из 4 человек.\n"
+                    f"Новая стоимость: {price} BYN с человека."
+                )
+            except Exception as error:
+                print(f"Не удалось отправить уведомление участнику {telegram_id}: {error}", flush=True)
+
+
+def get_or_create_departure(route_id, requested_date):
+    result = (
+        db.table("departures")
+        .select("*")
+        .eq("route_id", route_id)
+        .eq("departure_date", requested_date)
+        .eq("is_active", True)
+        .limit(1)
+        .execute()
+    )
+    if result.data:
+        return result.data[0]
+    result = (
+        db.table("departures")
+        .insert({
+            "route_id": route_id,
+            "departure_date": requested_date,
+            "capacity": 4,
+            "is_active": True,
+            "notes": "Группа создана по заявке туриста"
+        })
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
 def main_menu(chat_id):
     try:
         routes = get_routes()
@@ -131,15 +206,18 @@ def show_all_dates(chat_id):
         lines = ["Доступные даты поездок:"]
         for departure in departures:
             taken = get_taken_places(departure["id"])
-            available = int(departure["capacity"]) - taken
+            available = min(4, int(departure["capacity"])) - taken
             if available <= 0:
                 continue
 
             route = get_route(departure["route_id"])
             route_name = route["name"] if route else "Экскурсия"
             departure_time = departure.get("departure_time") or ""
+            price = get_group_price(departure["route_id"], max(1, taken))
+            price_text = f"{price} BYN/чел." if price is not None else "цена уточняется"
             lines.append(
-                f'• {route_name} — {departure["departure_date"]} {departure_time}; свободно мест: {available}'
+                f'• {route_name} — {departure["departure_date"]} {departure_time}; '
+                f'занято: {taken}/4, свободно: {available}; цена: {price_text}'
             )
 
         if len(lines) == 1:
@@ -206,15 +284,17 @@ def show_departures(chat_id, route_id):
 
     for departure in departures:
         taken = get_taken_places(departure["id"])
-        available = int(departure["capacity"]) - taken
+        available = min(4, int(departure["capacity"])) - taken
 
         if available <= 0:
             continue
 
+        price = get_group_price(route_id, max(1, taken))
+        price_text = f"{price} BYN/чел." if price is not None else "цена уточняется"
         time_text = departure.get("departure_time") or ""
         button_text = (
-            f'{departure["departure_date"]} '
-            f'{time_text} — свободно мест: {available}'
+            f'{departure["departure_date"]} {time_text} — '
+            f'занято {taken}/4, свободно {available}, {price_text}'
         )
 
         keyboard.add(
@@ -266,7 +346,7 @@ def callbacks(call):
             return
 
         taken = get_taken_places(departure_id)
-        available = int(departure["capacity"]) - taken
+        available = min(4, int(departure["capacity"])) - taken
 
         if available <= 0:
             bot.send_message(call.message.chat.id, "К сожалению, свободных мест уже нет.")
@@ -351,9 +431,13 @@ def callbacks(call):
 
     if data.startswith("cancel:") and is_admin(user_id):
         booking_id = int(data.split(":")[1])
+        selected = db.table("bookings").select("departure_id").eq("id", booking_id).limit(1).execute()
         db.table("bookings").update(
             {"status": "cancelled"}
         ).eq("id", booking_id).execute()
+        departure_id = selected.data[0].get("departure_id") if selected.data else None
+        if departure_id:
+            notify_group_price(departure_id)
 
         bot.send_message(call.message.chat.id, f"Заявка №{booking_id} отменена.")
         return
@@ -378,7 +462,7 @@ def show_pending_requests(chat_id):
         route = get_route(booking["route_id"])
         route_name = route["name"] if route else "Маршрут"
 
-        departure_text = "Заявка на новую дату"
+        departure_text = booking.get("requested_date") or "Заявка на новую дату"
         if booking.get("departure_id"):
             departure = get_departure(booking["departure_id"])
             if departure:
@@ -487,7 +571,7 @@ def handle_text(message):
     if stage == "admin_capacity" and is_admin(user_id):
         try:
             capacity = int(text)
-            if capacity < 1:
+            if capacity < 1 or capacity > 4:
                 raise ValueError()
 
             db.table("departures").insert({
@@ -500,7 +584,7 @@ def handle_text(message):
             user_states.pop(user_id, None)
             bot.send_message(message.chat.id, "Дата поездки успешно добавлена.")
         except ValueError:
-            bot.send_message(message.chat.id, "Введите целое число больше нуля.")
+            bot.send_message(message.chat.id, "Укажите количество мест от 1 до 4.")
         return
 
     # Турист предлагает желаемую дату для новой поездки
@@ -554,9 +638,16 @@ def handle_text(message):
     # Турист указывает контакт, заявка сохраняется в базе
     if stage == "contact":
         try:
+            departure_id = state.get("departure_id")
+            if not departure_id and state.get("requested_date"):
+                departure = get_or_create_departure(state["route_id"], state["requested_date"])
+                if not departure:
+                    raise RuntimeError("Не удалось создать группу на выбранную дату")
+                departure_id = departure["id"]
+
             booking = {
                 "route_id": state["route_id"],
-                "departure_id": state["departure_id"],
+                "departure_id": departure_id,
                 "requested_date": state.get("requested_date"),
                 "tourist_count": state["tourist_count"],
                 "name": state["name"],
@@ -569,6 +660,11 @@ def handle_text(message):
 
             route = get_route(state["route_id"])
             route_name = route["name"] if route else "Маршрут"
+            group_total = get_taken_places(departure_id) if departure_id else state["tourist_count"]
+            current_price = get_group_price(state["route_id"], group_total)
+            price_text = f"{current_price} BYN с человека" if current_price is not None else "уточняется организатором"
+            if departure_id:
+                notify_group_price(departure_id)
 
             departure_text = state.get("requested_date") or "Дата не указана"
             if state["departure_id"]:
@@ -580,7 +676,8 @@ def handle_text(message):
                 message.chat.id,
                 "Спасибо! Ваша заявка принята.\n"
                 f"Организатор свяжется с вами для подтверждения.\n"
-                f"Желаемая дата: {departure_text}"
+                f"Желаемая дата: {departure_text}\n"
+                f"Текущая стоимость: {price_text}"
             )
 
             admin_text = (
