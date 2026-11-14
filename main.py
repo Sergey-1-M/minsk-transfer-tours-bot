@@ -101,29 +101,28 @@ def home():
 
 
 @app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         update = telebot.types.Update.de_json(
             request.get_data().decode("utf-8")
         )
-        print(
-            "Получено обновление:",
-            update.update_id,
-            "Сообщение:",
-            bool(update.message),
-            "Текст:",
-repr(update.message.text) if update.message else None,
-            "Нажатие кнопки:",
-            bool(update.callback_query),
-            flush=True
-        )
-        bot.process_new_updates([update])
+
+        print("Получено обновление:", update.update_id, flush=True)
+
+        if update.message and update.message.text:
+            if update.message.text.startswith("/start"):
+                start(update.message)
+            else:
+                bot.process_new_updates([update])
+        else:
+            bot.process_new_updates([update])
+
         return "OK", 200
+
     except Exception as e:
         print("Ошибка webhook:", repr(e), flush=True)
         return "ERROR", 500
-
-webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
 
 if webhook_url:
     bot.remove_webhook()
