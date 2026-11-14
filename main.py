@@ -202,6 +202,18 @@ def tours_command(message):
     main_menu(message.chat.id)
 
 
+def format_join_prices(route_id, taken, available):
+    """Показывает цену в зависимости от числа туристов, которые присоединятся."""
+    price_lines = []
+    for joining_count in range(1, available + 1):
+        total_group_size = taken + joining_count
+        price = get_group_price(route_id, total_group_size)
+        price_text = f"{price} BYN с человека" if price is not None else "уточняется"
+        noun = "человек" if joining_count == 1 else "человека"
+        price_lines.append(f"Если присоединится {joining_count} {noun} — {price_text}")
+    return "\n".join(price_lines)
+
+
 def show_all_dates(chat_id):
     try:
         result = (
@@ -230,11 +242,11 @@ def show_all_dates(chat_id):
             route = get_route(departure["route_id"])
             route_name = route["name"] if route else "Экскурсия"
             departure_time = departure.get("departure_time") or ""
-            price = get_group_price(departure["route_id"], min(4, taken + 1))
-            price_text = f"{price} BYN/чел." if price is not None else "цена уточняется"
+            prices_text = format_join_prices(departure["route_id"], taken, available)
             lines.append(
-                f'• {route_name} — {departure["departure_date"]} {departure_time}; '
-                f'занято: {taken}/4, свободно: {available}; цена: {price_text}'
+                f'• {route_name} — {departure["departure_date"]} {departure_time}\n'
+                f'  В группе: {taken}/4, свободно: {available}\n'
+                f'{prices_text}'
             )
             keyboard.add(
                 types.InlineKeyboardButton(
@@ -246,11 +258,12 @@ def show_all_dates(chat_id):
         if len(lines) == 1:
             bot.send_message(chat_id, "Сейчас нет поездок со свободными местами. Выберите маршрут через /tours, чтобы оставить заявку на другую дату.")
         else:
-            bot.send_message(chat_id, "\\n".join(lines), reply_markup=keyboard)
+            bot.send_message(chat_id, "\n".join(lines), reply_markup=keyboard)
     except Exception:
         print("ОШИБКА /dates при загрузке дат из Supabase:", flush=True)
         traceback.print_exc()
         bot.send_message(chat_id, "Не удалось загрузить даты поездок. Попробуйте позже.")
+
 
 @bot.message_handler(commands=["dates"])
 def dates_command(message):
@@ -303,6 +316,11 @@ def show_departures(chat_id, route_id):
 
     departures = result.data or []
     keyboard = types.InlineKeyboardMarkup(row_width=1)
+    date_lines = [
+        f'Маршрут: {route["name"]}',
+        '',
+        'Выберите дату или оставьте заявку на новую поездку:'
+    ]
 
     for departure in departures:
         taken = get_taken_places(departure["id"])
@@ -311,14 +329,16 @@ def show_departures(chat_id, route_id):
         if available <= 0:
             continue
 
-        price = get_group_price(route_id, min(4, taken + 1))
-        price_text = f"{price} BYN/чел." if price is not None else "цена уточняется"
+        prices_text = format_join_prices(route_id, taken, available)
         time_text = departure.get("departure_time") or ""
+        date_lines.append(
+            f'\n{departure["departure_date"]} {time_text} — в группе {taken}/4, свободно {available}\n'
+            f'{prices_text}'
+        )
         button_text = (
             f'{departure["departure_date"]} {time_text} — '
-            f'занято {taken}/4, свободно {available}, {price_text}'
+            f'занято {taken}/4, свободно {available}'
         )
-
         keyboard.add(
             types.InlineKeyboardButton(
                 button_text,
@@ -338,7 +358,7 @@ def show_departures(chat_id, route_id):
 
     bot.send_message(
         chat_id,
-        f'Маршрут: {route["name"]}\n\nВыберите дату или оставьте заявку на новую поездку:',
+        "\n".join(date_lines),
         reply_markup=keyboard
     )
 
