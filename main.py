@@ -24,14 +24,14 @@ ROUTES = [
 pending_requests = {}
 
 
-@bot.message_handler(commands=["start"])
 def start(message):
     keyboard = telebot.types.InlineKeyboardMarkup()
 
     for i, route in enumerate(ROUTES):
         keyboard.add(
             telebot.types.InlineKeyboardButton(
-                route, callback_data=f"route:{i}"
+                route,
+                callback_data=f"route:{i}"
             )
         )
 
@@ -43,7 +43,9 @@ def start(message):
     )
 
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("route:"))
+@bot.callback_query_handler(
+    func=lambda call: call.data.startswith("route:")
+)
 def choose_route(call):
     try:
         index = int(call.data.split(":", 1)[1])
@@ -58,7 +60,7 @@ def choose_route(call):
     bot.send_message(
         call.message.chat.id,
         f"Вы выбрали: {route}.\n\n"
-        "Напишите, пожалуйста, сколько туристов планирует поездку "
+        "Напишите, сколько туристов планирует поездку "
         "и оставьте контакт для связи."
     )
 
@@ -101,14 +103,11 @@ def home():
 
 
 @app.route("/webhook", methods=["POST"])
-@app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         update = telebot.types.Update.de_json(
             request.get_data().decode("utf-8")
         )
-
-        print("Получено обновление:", update.update_id, flush=True)
 
         if update.message and update.message.text:
             if update.message.text.startswith("/start"):
@@ -123,6 +122,9 @@ def webhook():
     except Exception as e:
         print("Ошибка webhook:", repr(e), flush=True)
         return "ERROR", 500
+
+
+webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
 
 if webhook_url:
     bot.remove_webhook()
