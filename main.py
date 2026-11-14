@@ -80,7 +80,7 @@ def get_group_price(route_id, group_size):
     return int(result.data[0]["price_per_person"]) if result.data else None
 
 
-def notify_group_price(departure_id):
+def notify_group_price(departure_id, exclude_telegram_id=None):
     departure = get_departure(departure_id)
     if not departure:
         return
@@ -118,7 +118,7 @@ def notify_group_price(departure_id):
     # Участники видят только состав группы и цену, без чужих контактов.
     for item in bookings:
         telegram_id = item.get("telegram_id")
-        if telegram_id:
+        if telegram_id and int(telegram_id) != exclude_telegram_id:
             try:
                 bot.send_message(
                     int(telegram_id),
@@ -686,7 +686,7 @@ def handle_text(message):
             current_price = get_group_price(state["route_id"], group_total)
             price_text = f"{current_price} BYN с человека" if current_price is not None else "уточняется организатором"
             if departure_id:
-                notify_group_price(departure_id)
+                notify_group_price(departure_id, exclude_telegram_id=user_id)
 
             departure_text = state.get("requested_date") or "Дата не указана"
             if state["departure_id"]:
@@ -694,13 +694,15 @@ def handle_text(message):
                 if departure:
                     departure_text = departure["departure_date"]
 
-            bot.send_message(
-                message.chat.id,
-                "Спасибо! Ваша заявка принята.\n"
-                f"Организатор свяжется с вами для подтверждения.\n"
-                f"Желаемая дата: {departure_text}\n"
-                f"Текущая стоимость: {price_text}"
-            )
+            # Подтверждение заявки отправляется заказчику, но не дублируется в чате организатора.
+            if not is_admin(user_id):
+                bot.send_message(
+                    message.chat.id,
+                    "Спасибо! Ваша заявка принята.\\n"
+                    f"Организатор свяжется с вами для подтверждения.\\n"
+                    f"Желаемая дата: {departure_text}\\n"
+                    f"Текущая стоимость: {price_text}"
+                )
 
             admin_text = (
                 "Новая заявка на экскурсию!\n\n"
