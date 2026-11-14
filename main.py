@@ -1,6 +1,7 @@
 
 import os
 from datetime import date
+import traceback
 from flask import Flask, request
 import telebot
 from telebot import types
@@ -15,7 +16,8 @@ ADMIN_ID = 1255152509
 if not TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Не заданы BOT_TOKEN, SUPABASE_URL или SUPABASE_KEY в Render")
 
-bot = telebot.TeleBot(TOKEN)
+# Обрабатываем обновления синхронно внутри webhook, чтобы ошибки попадали в лог Render.
+bot = telebot.TeleBot(TOKEN, threaded=False)
 db = create_client(SUPABASE_URL, SUPABASE_KEY)
 app = Flask(__name__)
 
@@ -65,21 +67,37 @@ def get_taken_places(departure_id):
 
 
 def main_menu(chat_id):
-    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    try:
+        routes = get_routes()
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
 
-    for route in get_routes():
-        keyboard.add(
-            types.InlineKeyboardButton(
-                route["name"],
-                callback_data=f'route:{route["id"]}'
+        for route in routes:
+            keyboard.add(
+                types.InlineKeyboardButton(
+                    route["name"],
+                    callback_data=f'route:{route["id"]}'
+                )
             )
-        )
 
-    bot.send_message(
-        chat_id,
-        "Здравствуйте! Выберите экскурсионный маршрут:",
-        reply_markup=keyboard
-    )
+        if not routes:
+            bot.send_message(
+                chat_id,
+                "Список маршрутов пока пуст. Пожалуйста, свяжитесь с организатором."
+            )
+            return
+
+        bot.send_message(
+            chat_id,
+            "Здравствуйте! Выберите экскурсионный маршрут:",
+            reply_markup=keyboard
+        )
+    except Exception:
+        print("ОШИБКА main_menu / чтение маршрутов Supabase:", flush=True)
+        traceback.print_exc()
+        bot.send_message(
+            chat_id,
+            "Не удалось загрузить маршруты. Организатор уже может проверить журнал ошибки. Попробуйте позже."
+        )
 
 
 @bot.message_handler(commands=["start"])
@@ -507,11 +525,41 @@ def home():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    if request.headers.get("content-type", "").startswith("application/json"):
-        json_string = request.get_data().decode("utf-8")
+    try:
+        if not request.is_json:
+            print(
+                "Webhook получил запрос не в JSON:",
+                request.headers.get("Content-Type"),
+                flush=True
+            )
+            return "Expected application/json", 400
+
+        json_string = request.get_data(as_text=True)
         update = telebot.types.Update.de_json(json_string)
+
+        if update is None:
+            print("Webhook: Telegram прислал пустое или нераспознанное обновление.", flush=True)
+            return "Invalid update", 400
+
+        message_text = None
+        if update.message:
+            message_text = update.message.text
+        elif update.edited_message:
+            message_text = update.edited_message.text
+
+        print(
+            f"Webhook: update_id={update.update_id}, message={message_text!r}",
+            flush=True
+        )
+
         bot.process_new_updates([update])
-    return "OK", 200
+        print(f"Webhook: update_id={update.update_id} обработан.", flush=True)
+        return "OK", 200
+
+    except Exception:
+        print("КРИТИЧЕСКАЯ ОШИБКА обработки Telegram webhook:", flush=True)
+        traceback.print_exc()
+        return "Internal Server Error", 500
 
 
 # Установка Telegram webhook на Render
