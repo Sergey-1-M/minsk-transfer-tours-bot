@@ -552,7 +552,22 @@ def webhook():
             flush=True
         )
 
-        bot.process_new_updates([update])
+        # /start обрабатываем прямо в webhook. Это исключает зависимость
+        # стартового меню от диспетчеризации message_handler в библиотеке.
+        if update.message and update.message.text:
+            command = update.message.text.split()[0].split("@")[0]
+            if command == "/start":
+                print("Webhook: прямой вызов обработчика /start.", flush=True)
+                user_states.pop(update.message.from_user.id, None)
+                main_menu(update.message.chat.id)
+            elif command == "/admin":
+                print("Webhook: прямой вызов обработчика /admin.", flush=True)
+                admin_menu(update.message)
+            else:
+                bot.process_new_updates([update])
+        else:
+            bot.process_new_updates([update])
+
         print(f"Webhook: update_id={update.update_id} обработан.", flush=True)
         return "OK", 200
 
