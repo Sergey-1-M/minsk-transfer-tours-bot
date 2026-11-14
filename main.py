@@ -230,7 +230,7 @@ def show_all_dates(chat_id):
             route = get_route(departure["route_id"])
             route_name = route["name"] if route else "Экскурсия"
             departure_time = departure.get("departure_time") or ""
-            price = get_group_price(departure["route_id"], max(1, taken))
+            price = get_group_price(departure["route_id"], min(4, taken + 1))
             price_text = f"{price} BYN/чел." if price is not None else "цена уточняется"
             lines.append(
                 f'• {route_name} — {departure["departure_date"]} {departure_time}; '
@@ -311,7 +311,7 @@ def show_departures(chat_id, route_id):
         if available <= 0:
             continue
 
-        price = get_group_price(route_id, max(1, taken))
+        price = get_group_price(route_id, min(4, taken + 1))
         price_text = f"{price} BYN/чел." if price is not None else "цена уточняется"
         time_text = departure.get("departure_time") or ""
         button_text = (
