@@ -289,15 +289,15 @@ def callbacks(call):
         route_id = int(data.split(":")[1])
 
         user_states[user_id] = {
-            "stage": "count",
+            "stage": "requested_date",
             "route_id": route_id,
             "departure_id": None,
-            "available": 20
+            "available": 4
         }
 
         bot.send_message(
             call.message.chat.id,
-            "Вы выбрали заявку на новую дату.\nСколько туристов планирует поездку?"
+            "На какую дату вы хотели бы поездку?\nВведите дату в формате ГГГГ-ММ-ДД, например: 2026-12-20."
         )
         return
 
@@ -503,6 +503,26 @@ def handle_text(message):
             bot.send_message(message.chat.id, "Введите целое число больше нуля.")
         return
 
+    # Турист предлагает желаемую дату для новой поездки
+    if stage == "requested_date":
+        try:
+            requested_date = date.fromisoformat(text)
+            if requested_date < date.today():
+                raise ValueError()
+
+            state["requested_date"] = requested_date.isoformat()
+            state["stage"] = "count"
+            bot.send_message(
+                message.chat.id,
+                "Спасибо! Желаемая дата записана.\nСколько туристов планирует поездку? (от 1 до 4)"
+            )
+        except ValueError:
+            bot.send_message(
+                message.chat.id,
+                "Пожалуйста, укажите будущую дату в формате ГГГГ-ММ-ДД, например: 2026-12-20."
+            )
+        return
+
     # Турист указывает количество человек
     if stage == "count":
         try:
@@ -537,6 +557,7 @@ def handle_text(message):
             booking = {
                 "route_id": state["route_id"],
                 "departure_id": state["departure_id"],
+                "requested_date": state.get("requested_date"),
                 "tourist_count": state["tourist_count"],
                 "name": state["name"],
                 "contact": text,
@@ -549,7 +570,7 @@ def handle_text(message):
             route = get_route(state["route_id"])
             route_name = route["name"] if route else "Маршрут"
 
-            departure_text = "Новая дата — по согласованию"
+            departure_text = state.get("requested_date") or "Дата не указана"
             if state["departure_id"]:
                 departure = get_departure(state["departure_id"])
                 if departure:
@@ -558,7 +579,8 @@ def handle_text(message):
             bot.send_message(
                 message.chat.id,
                 "Спасибо! Ваша заявка принята.\n"
-                "Организатор свяжется с вами для подтверждения."
+                f"Организатор свяжется с вами для подтверждения.\n"
+                f"Желаемая дата: {departure_text}"
             )
 
             admin_text = (
