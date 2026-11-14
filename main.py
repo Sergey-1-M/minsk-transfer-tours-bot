@@ -120,3 +120,10 @@ def webhook():
     except Exception as e:
         print("Ошибка webhook:", repr(e), flush=True)
         return "ERROR", 500
+
+webhook_url = os.environ.get("RENDER_EXTERNAL_URL")
+
+if webhook_url:
+    bot.remove_webhook()
+    bot.set_webhook(url=webhook_url + "/webhook")
+    print("Webhook установлен:", webhook_url + "/webhook", flush=True)
