@@ -101,14 +101,29 @@ def notify_group_price(departure_id):
         return
     route = get_route(departure["route_id"])
     route_name = route["name"] if route else "Экскурсия"
+    group_message = (
+        f"Группа на экскурсию «{route_name}»\\n"
+        f"Дата: {departure['departure_date']}\\n"
+        f"Участников: {people} из 4\\n"
+        f"Свободно мест: {max(0, 4 - people)}\\n"
+        f"Стоимость: {price} BYN с человека."
+    )
+
+    # Организатор получает отдельное уведомление о составе группы и актуальной цене.
+    try:
+        bot.send_message(ADMIN_ID, "Обновление группы\\n" + group_message)
+    except Exception as error:
+        print(f"Не удалось отправить уведомление организатору: {error}", flush=True)
+
+    # Участники видят только состав группы и цену, без чужих контактов.
     for item in bookings:
         telegram_id = item.get("telegram_id")
         if telegram_id:
             try:
                 bot.send_message(
                     int(telegram_id),
-                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\n"
-                    f"В группе: {people} из 4 человек.\n"
+                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\\n"
+                    f"В группе: {people} из 4 человек.\\n"
                     f"Новая стоимость: {price} BYN с человека."
                 )
             except Exception as error:
