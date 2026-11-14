@@ -111,6 +111,8 @@ def webhook():
             update.update_id,
             "Сообщение:",
             bool(update.message),
+            "Текст:",
+repr(update.message.text) if update.message else None,
             "Нажатие кнопки:",
             bool(update.callback_query),
             flush=True
