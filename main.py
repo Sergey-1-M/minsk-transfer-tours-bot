@@ -178,9 +178,9 @@ def main_menu(chat_id):
 
         bot.send_message(
             chat_id,
-            "Добро пожаловать в Minsk Transfer Tours!\\n\\n"
+            "Добро пожаловать в Minsk Transfer Tours!\n\n"
             "Подберите поездку в мини-группе до 4 человек. "
-            "Выбирайте доступную дату или предложите свою.\\n\\n"
+            "Выбирайте доступную дату или предложите свою.\n\n"
             "Выберите маршрут:",
             reply_markup=keyboard
         )
@@ -757,9 +757,9 @@ def handle_text(message):
             if not is_admin(user_id):
                 bot.send_message(
                     message.chat.id,
-                    "Спасибо! Ваша заявка принята.\\n"
-                    f"Организатор свяжется с вами для подтверждения.\\n"
-                    f"Желаемая дата: {departure_text}\\n"
+                    "Спасибо! Ваша заявка принята.\n"
+                    f"Организатор свяжется с вами для подтверждения.\n"
+                    f"Желаемая дата: {departure_text}\n"
                     f"Текущая стоимость: {price_text}"
                 )
 
