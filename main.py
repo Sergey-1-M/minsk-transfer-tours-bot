@@ -178,7 +178,10 @@ def main_menu(chat_id):
 
         bot.send_message(
             chat_id,
-            "Здравствуйте! Выберите экскурсионный маршрут:",
+            "Добро пожаловать в Minsk Transfer Tours!\\n\\n"
+            "Подберите поездку в мини-группе до 4 человек. "
+            "Выбирайте доступную дату или предложите свою.\\n\\n"
+            "Выберите маршрут:",
             reply_markup=keyboard
         )
     except Exception:
