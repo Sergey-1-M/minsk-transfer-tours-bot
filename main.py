@@ -189,12 +189,28 @@ def notify_group_price(departure_id, exclude_telegram_id=None):
     # Участники видят только состав группы и цену, без чужих контактов.
     for item in bookings:
         telegram_id = item.get("telegram_id")
-        if telegram_id and int(telegram_id) != exclude_telegram_id:
+        if telegram_id and int(telegram_id) == exclude_telegram_id:
+            continue
+        if item.get("email"):
+            send_email(
+                item["email"],
+                f"Обновление поездки «{route_name}» — {departure['departure_date']}",
+                f"В вашей группе обновилась информация.\\n"
+                f"Маршрут: {route_name}\\n"
+                f"Дата: {departure['departure_date']}\\n"
+                f"Время начала: {time_text}\\n"
+                f"Участников: {people} из 4\\n"
+                f"Свободно мест: {max(0, 4 - people)}\\n"
+                f"Новая стоимость: {price} BYN с человека.\\n\\n"
+                "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
+            )
+        if telegram_id:
             try:
                 bot.send_message(
                     int(telegram_id),
-                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\n"
-                    f"В группе: {people} из 4 человек.\n"
+                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\\n"
+                    f"Время начала: {time_text}.\\n"
+                    f"В группе: {people} из 4 человек.\\n"
                     f"Новая стоимость: {price} BYN с человека."
                 )
             except Exception as error:
