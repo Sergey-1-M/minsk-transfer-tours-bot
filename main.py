@@ -155,7 +155,7 @@ def notify_group_price(departure_id, exclude_telegram_id=None):
         return
     result = (
         db.table("bookings")
-        .select("tourist_count, telegram_id")
+        .select("tourist_count, telegram_id, email")
         .eq("departure_id", departure_id)
         .in_("status", ["pending", "confirmed"])
         .execute()
