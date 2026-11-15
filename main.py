@@ -1,6 +1,10 @@
 
 import os
-from datetime import date
+import re
+import smtplib
+import ssl
+from email.message import EmailMessage
+from datetime import date, datetime
 import traceback
 from flask import Flask, request
 import telebot
@@ -12,6 +16,12 @@ TOKEN = os.environ.get("BOT_TOKEN")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ADMIN_ID = 1255152509
+
+SMTP_HOST = os.environ.get("SMTP_HOST")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+FROM_EMAIL = os.environ.get("FROM_EMAIL") or SMTP_USER
 
 if not TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Не заданы BOT_TOKEN, SUPABASE_URL или SUPABASE_KEY в Render")
@@ -78,6 +88,65 @@ def get_group_price(route_id, group_size):
         .execute()
     )
     return int(result.data[0]["price_per_person"]) if result.data else None
+
+
+def send_email(recipient, subject, body):
+    """Отправляет письмо одному туристу; сбой почты не отменяет бронирование."""
+    if not recipient:
+        return False
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL]):
+        print("Email не отправлен: SMTP-настройки не заданы в Render.", flush=True)
+        return False
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = FROM_EMAIL
+    message["To"] = recipient
+    message.set_content(body)
+    try:
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20, context=ssl.create_default_context()) as server:
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+                server.ehlo()
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(message)
+        return True
+    except Exception as error:
+        print(f"Не удалось отправить Email на {recipient}: {error}", flush=True)
+        return False
+
+
+def notify_departure_time(departure_id):
+    departure = get_departure(departure_id)
+    if not departure:
+        return
+    result = (
+        db.table("bookings").select("email, telegram_id")
+        .eq("departure_id", departure_id)
+        .in_("status", ["pending", "confirmed"]).execute()
+    )
+    route = get_route(departure["route_id"])
+    route_name = route["name"] if route else "Экскурсия"
+    time_text = departure.get("departure_time") or "уточняется"
+    subject = f"Изменилось время поездки — {route_name}"
+    body = (
+        f"В поездке «{route_name}» изменилось время начала.\n"
+        f"Дата: {departure['departure_date']}\n"
+        f"Новое время: {time_text}\n\n"
+        "Организатор Minsk Transfer Tours согласует с вами остальные детали."
+    )
+    for booking in (result.data or []):
+        send_email(booking.get("email"), subject, body)
+        telegram_id = booking.get("telegram_id")
+        if telegram_id:
+            try:
+                bot.send_message(int(telegram_id), body)
+            except Exception as error:
+                print(f"Не удалось отправить Telegram-уведомление {telegram_id}: {error}", flush=True)
 
 
 def notify_group_price(departure_id, exclude_telegram_id=None):
