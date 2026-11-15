@@ -90,6 +90,10 @@ def get_group_price(route_id, group_size):
     return int(result.data[0]["price_per_person"]) if result.data else None
 
 
+def format_departure_time(value, default="уточняется"):
+    return str(value)[:5] if value else default
+
+
 def send_email(recipient, subject, body):
     """Отправляет письмо одному туристу; сбой почты не отменяет бронирование."""
     if not recipient:
@@ -129,7 +133,7 @@ def notify_booking_status(booking_id, status):
     route_name = route["name"] if route else "Экскурсия"
     departure = get_departure(booking["departure_id"]) if booking.get("departure_id") else None
     date_text = departure["departure_date"] if departure else (booking.get("requested_date") or "уточняется")
-    time_text = departure.get("departure_time") if departure else "уточняется"
+    time_text = format_departure_time(departure.get("departure_time") if departure else None)
     if status == "confirmed":
         subject = f"Бронирование подтверждено — {route_name}"
         status_text = "Организатор подтвердил вашу заявку."
@@ -164,7 +168,7 @@ def notify_departure_time(departure_id):
     )
     route = get_route(departure["route_id"])
     route_name = route["name"] if route else "Экскурсия"
-    time_text = departure.get("departure_time") or "уточняется"
+    time_text = format_departure_time(departure.get("departure_time"))
     subject = f"Изменилось время поездки — {route_name}"
     body = (
         f"В поездке «{route_name}» изменилось время начала.\n"
@@ -478,7 +482,7 @@ def show_departures(chat_id, route_id):
             continue
 
         prices_text = format_join_prices(route_id, taken, available)
-        time_text = str(departure.get("departure_time") or "")[:5]
+        time_text = format_departure_time(departure.get("departure_time"), "")
         date_lines.append(
             f'\n{departure["departure_date"]} {time_text} — в группе {taken}/4, свободно {available}\n'
             f'{prices_text}'
@@ -720,7 +724,7 @@ def show_admin_dates(chat_id):
         route_name = route["name"] if route else "Маршрут"
         taken = get_taken_places(departure["id"])
         available = int(departure["capacity"]) - taken
-        time_text = str(departure.get("departure_time") or "не указано")[:5]
+        time_text = format_departure_time(departure.get("departure_time"), "не указано")
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton(
             "Изменить время", callback_data=f"admin:time:{departure['id']}"
@@ -933,7 +937,7 @@ def handle_text(message):
 
             departure = get_departure(departure_id) if departure_id else None
             departure_text = departure["departure_date"] if departure else (state.get("requested_date") or "Дата не указана")
-            time_text = (departure.get("departure_time") if departure else state.get("requested_time")) or "уточняется"
+            time_text = format_departure_time(departure.get("departure_time") if departure else state.get("requested_time"))
 
             confirmation = (
                 "Спасибо! Ваша заявка принята.\n"
