@@ -85,6 +85,20 @@ def format_departure_time(value, default="уточняется"):
     return str(value)[:5] if value else default
 
 
+def report_manual_contact(booking, reason):
+    try:
+        bot.send_message(
+            ADMIN_ID,
+            "Не удалось доставить туристу сообщение в Telegram. Свяжитесь вручную.\n"
+            f"Заявка №{booking.get('id', '—')}\n"
+            f"Имя: {booking.get('name') or 'не указано'}\n"
+            f"Телефон/контакт: {booking.get('contact') or 'не указан'}\n"
+            f"Причина: {reason}"
+        )
+    except Exception as error:
+        print(f"Не удалось уведомить администратора о ручном контакте: {error}", flush=True)
+
+
 def notify_booking_status(booking_id, status):
     result = db.table("bookings").select("*").eq("id", booking_id).limit(1).execute()
     if not result.data:
@@ -104,13 +118,14 @@ def notify_booking_status(booking_id, status):
             bot.send_message(int(telegram_id), body)
         except Exception as error:
             print(f"Не удалось отправить статусное уведомление {telegram_id}: {error}", flush=True)
+            report_manual_contact(booking, str(error))
 
 
 def notify_departure_time(departure_id):
     departure = get_departure(departure_id)
     if not departure:
         return
-    result = (db.table("bookings").select("telegram_id").eq("departure_id", departure_id)
+    result = (db.table("bookings").select("id, name, contact, telegram_id").eq("departure_id", departure_id)
               .in_("status", ["pending", "confirmed"]).execute())
     route = get_route(departure["route_id"])
     route_name = route["name"] if route else "Экскурсия"
@@ -123,13 +138,14 @@ def notify_departure_time(departure_id):
                 bot.send_message(int(item["telegram_id"]), body)
             except Exception as error:
                 print(f"Не удалось отправить Telegram-уведомление: {error}", flush=True)
+                report_manual_contact(item, str(error))
 
 
 def notify_group_price(departure_id, exclude_telegram_id=None):
     departure = get_departure(departure_id)
     if not departure:
         return
-    result = (db.table("bookings").select("tourist_count, telegram_id").eq("departure_id", departure_id)
+    result = (db.table("bookings").select("id, name, contact, tourist_count, telegram_id").eq("departure_id", departure_id)
               .in_("status", ["pending", "confirmed"]).execute())
     bookings = result.data or []
     people = sum(int(x["tourist_count"]) for x in bookings)
@@ -162,6 +178,7 @@ def notify_group_price(departure_id, exclude_telegram_id=None):
                 bot.send_message(int(tid), body)
             except Exception as error:
                 print(f"Не удалось уведомить участника {tid}: {error}", flush=True)
+                report_manual_contact(item, str(error))
 
 
 def create_departure(route_id, requested_date, requested_time):
