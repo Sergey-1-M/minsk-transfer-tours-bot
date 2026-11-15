@@ -195,22 +195,22 @@ def notify_group_price(departure_id, exclude_telegram_id=None):
             send_email(
                 item["email"],
                 f"Обновление поездки «{route_name}» — {departure['departure_date']}",
-                f"В вашей группе обновилась информация.\\n"
-                f"Маршрут: {route_name}\\n"
-                f"Дата: {departure['departure_date']}\\n"
-                f"Время начала: {time_text}\\n"
-                f"Участников: {people} из 4\\n"
-                f"Свободно мест: {max(0, 4 - people)}\\n"
-                f"Новая стоимость: {price} BYN с человека.\\n\\n"
+                f"В вашей группе обновилась информация.\n"
+                f"Маршрут: {route_name}\n"
+                f"Дата: {departure['departure_date']}\n"
+                f"Время начала: {time_text}\n"
+                f"Участников: {people} из 4\n"
+                f"Свободно мест: {max(0, 4 - people)}\n"
+                f"Новая стоимость: {price} BYN с человека.\n\n"
                 "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
             )
         if telegram_id:
             try:
                 bot.send_message(
                     int(telegram_id),
-                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\\n"
-                    f"Время начала: {time_text}.\\n"
-                    f"В группе: {people} из 4 человек.\\n"
+                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\n"
+                    f"Время начала: {time_text}.\n"
+                    f"В группе: {people} из 4 человек.\n"
                     f"Новая стоимость: {price} BYN с человека."
                 )
             except Exception as error:
@@ -253,9 +253,9 @@ def main_menu(chat_id):
             chat_id,
             "Добро пожаловать в Minsk Transfer Tours!\n\n"
             "Мы работаем напрямую, без агрегаторов и посредников: предлагаем выгодные цены, "
-            "мини-группы до 4 человек и внимательное отношение к каждому туристу.\\n"
-            "Без предоплаты. Напрямую с организатором. С заботой о вашем путешествии.\\n\\n"
-            "Выбирайте доступную дату или откройте собственную группу.\\n\\n"
+            "мини-группы до 4 человек и внимательное отношение к каждому туристу.\n"
+            "Без предоплаты. Напрямую с организатором. С заботой о вашем путешествии.\n\n"
+            "Выбирайте доступную дату или откройте собственную группу.\n\n"
             "Выберите маршрут:",
             reply_markup=keyboard
         )
@@ -582,7 +582,7 @@ def callbacks(call):
         user_states[user_id] = {"stage": "admin_edit_time", "departure_id": departure_id}
         bot.send_message(
             call.message.chat.id,
-            f"Текущее время: {departure.get('departure_time') or 'не указано'}.\\n"
+            f"Текущее время: {departure.get('departure_time') or 'не указано'}.\n"
             "Введите новое время в формате ЧЧ:ММ, например 09:30."
         )
         return
@@ -691,10 +691,10 @@ def show_admin_dates(chat_id):
         ))
         bot.send_message(
             chat_id,
-            f'№{departure["id"]} — {route_name}\\n'
-            f'Дата: {departure["departure_date"]}\\n'
-            f'Время начала: {time_text}\\n'
-            f'Вместимость: {departure["capacity"]}\\n'
+            f'№{departure["id"]} — {route_name}\n'
+            f'Дата: {departure["departure_date"]}\n'
+            f'Время начала: {time_text}\n'
+            f'Вместимость: {departure["capacity"]}\n'
             f'Занято: {taken}, свободно: {available}',
             reply_markup=keyboard
         )
@@ -796,8 +796,8 @@ def handle_text(message):
             state["stage"] = "requested_time"
             bot.send_message(
                 message.chat.id,
-                "На какое время вы хотели бы начать экскурсию?\\n"
-                "Укажите предварительное время в формате ЧЧ:ММ, например 09:00.\\n"
+                "На какое время вы хотели бы начать экскурсию?\n"
+                "Укажите предварительное время в формате ЧЧ:ММ, например 09:00.\n"
                 "Организатор сможет согласовать и немного скорректировать его."
             )
         except ValueError:
@@ -813,7 +813,7 @@ def handle_text(message):
             parsed_time = datetime.strptime(text, "%H:%M").time()
             state["requested_time"] = parsed_time.strftime("%H:%M:%S")
             state["stage"] = "count"
-            bot.send_message(message.chat.id, "Время записано предварительно.\\nСколько туристов планирует поездку? (от 1 до 4)")
+            bot.send_message(message.chat.id, "Время записано предварительно.\nСколько туристов планирует поездку? (от 1 до 4)")
         except ValueError:
             bot.send_message(message.chat.id, "Укажите время в формате ЧЧ:ММ, например 09:00.")
         return
@@ -860,7 +860,7 @@ def handle_text(message):
     # Email обязателен: каждый участник получает письма об изменениях группы.
     if stage == "email":
         try:
-            if not re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", text):
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
                 bot.send_message(message.chat.id, "Проверьте адрес Email и введите его ещё раз.")
                 return
 
@@ -900,12 +900,12 @@ def handle_text(message):
             time_text = (departure.get("departure_time") if departure else state.get("requested_time")) or "уточняется"
 
             confirmation = (
-                "Спасибо! Ваша заявка принята.\\n"
-                "Организатор свяжется с вами для согласования деталей.\\n"
-                f"Маршрут: {route_name}\\n"
-                f"Дата: {departure_text}\\n"
-                f"Предварительное время начала: {time_text}\\n"
-                f"Количество туристов: {state['tourist_count']}\\n"
+                "Спасибо! Ваша заявка принята.\n"
+                "Организатор свяжется с вами для согласования деталей.\n"
+                f"Маршрут: {route_name}\n"
+                f"Дата: {departure_text}\n"
+                f"Предварительное время начала: {time_text}\n"
+                f"Количество туристов: {state['tourist_count']}\n"
                 f"Текущая стоимость: {price_text}"
             )
             if not is_admin(user_id):
@@ -914,25 +914,25 @@ def handle_text(message):
             send_email(
                 state["email"],
                 f"Заявка принята — {route_name}",
-                f"Здравствуйте, {state['name']}!\\n\\n"
-                "Ваша заявка в Minsk Transfer Tours принята.\\n"
-                f"Маршрут: {route_name}\\n"
-                f"Дата: {departure_text}\\n"
-                f"Предварительное время начала: {time_text}\\n"
-                f"Количество туристов: {state['tourist_count']}\\n"
-                f"Текущая стоимость: {price_text}\\n\\n"
-                "Организатор свяжется с вами для согласования деталей.\\n\\n"
+                f"Здравствуйте, {state['name']}!\n\n"
+                "Ваша заявка в Minsk Transfer Tours принята.\n"
+                f"Маршрут: {route_name}\n"
+                f"Дата: {departure_text}\n"
+                f"Предварительное время начала: {time_text}\n"
+                f"Количество туристов: {state['tourist_count']}\n"
+                f"Текущая стоимость: {price_text}\n\n"
+                "Организатор свяжется с вами для согласования деталей.\n\n"
                 "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
             )
 
             admin_text = (
-                "Новая заявка на экскурсию!\\n\\n"
-                f"Маршрут: {route_name}\\n"
-                f"Дата: {departure_text}\\n"
-                f"Время начала: {time_text}\\n"
-                f"Туристов: {state['tourist_count']}\\n"
-                f"Имя: {state['name']}\\n"
-                f"Контакт: {state['contact']}\\n"
+                "Новая заявка на экскурсию!\n\n"
+                f"Маршрут: {route_name}\n"
+                f"Дата: {departure_text}\n"
+                f"Время начала: {time_text}\n"
+                f"Туристов: {state['tourist_count']}\n"
+                f"Имя: {state['name']}\n"
+                f"Контакт: {state['contact']}\n"
                 f"Email: {state['email']}"
             )
             bot.send_message(ADMIN_ID, admin_text)
