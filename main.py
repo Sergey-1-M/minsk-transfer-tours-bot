@@ -120,6 +120,39 @@ def send_email(recipient, subject, body):
         return False
 
 
+def notify_booking_status(booking_id, status):
+    result = db.table("bookings").select("*").eq("id", booking_id).limit(1).execute()
+    if not result.data:
+        return
+    booking = result.data[0]
+    route = get_route(booking["route_id"])
+    route_name = route["name"] if route else "Экскурсия"
+    departure = get_departure(booking["departure_id"]) if booking.get("departure_id") else None
+    date_text = departure["departure_date"] if departure else (booking.get("requested_date") or "уточняется")
+    time_text = departure.get("departure_time") if departure else "уточняется"
+    if status == "confirmed":
+        subject = f"Бронирование подтверждено — {route_name}"
+        status_text = "Организатор подтвердил вашу заявку."
+    else:
+        subject = f"Изменение статуса заявки — {route_name}"
+        status_text = "Ваша заявка отменена. Если это произошло по ошибке, свяжитесь с организатором."
+    body = (
+        f"{status_text}\\n"
+        f"Маршрут: {route_name}\\n"
+        f"Дата: {date_text}\\n"
+        f"Время начала: {time_text or 'уточняется'}\\n"
+        f"Количество туристов: {booking['tourist_count']}\\n\\n"
+        "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
+    )
+    send_email(booking.get("email"), subject, body)
+    telegram_id = booking.get("telegram_id")
+    if telegram_id:
+        try:
+            bot.send_message(int(telegram_id), body)
+        except Exception as error:
+            print(f"Не удалось отправить статусное уведомление {telegram_id}: {error}", flush=True)
+
+
 def notify_departure_time(departure_id):
     departure = get_departure(departure_id)
     if not departure:
@@ -596,8 +629,9 @@ def callbacks(call):
         db.table("bookings").update(
             {"status": "confirmed"}
         ).eq("id", booking_id).execute()
+        notify_booking_status(booking_id, "confirmed")
 
-        bot.send_message(call.message.chat.id, f"Заявка №{booking_id} подтверждена.")
+        bot.send_message(call.message.chat.id, f"Заявка №{booking_id} подтверждена. Турист получил уведомление.")
         return
 
     if data.startswith("cancel:") and is_admin(user_id):
@@ -606,6 +640,7 @@ def callbacks(call):
         db.table("bookings").update(
             {"status": "cancelled"}
         ).eq("id", booking_id).execute()
+        notify_booking_status(booking_id, "cancelled")
         departure_id = selected.data[0].get("departure_id") if selected.data else None
         if departure_id:
             notify_group_price(departure_id)
