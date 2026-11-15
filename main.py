@@ -749,16 +749,29 @@ def handle_text(message):
                 raise ValueError()
 
             state["requested_date"] = requested_date.isoformat()
-            state["stage"] = "count"
+            state["stage"] = "requested_time"
             bot.send_message(
                 message.chat.id,
-                "Спасибо! Желаемая дата записана.\nСколько туристов планирует поездку? (от 1 до 4)"
+                "На какое время вы хотели бы начать экскурсию?\\n"
+                "Укажите предварительное время в формате ЧЧ:ММ, например 09:00.\\n"
+                "Организатор сможет согласовать и немного скорректировать его."
             )
         except ValueError:
             bot.send_message(
                 message.chat.id,
                 "Пожалуйста, укажите будущую дату в формате ГГГГ-ММ-ДД, например: 2026-12-20."
             )
+        return
+
+    # Первый турист выбирает предварительное время начала своей группы.
+    if stage == "requested_time":
+        try:
+            parsed_time = datetime.strptime(text, "%H:%M").time()
+            state["requested_time"] = parsed_time.strftime("%H:%M:%S")
+            state["stage"] = "count"
+            bot.send_message(message.chat.id, "Время записано предварительно.\\nСколько туристов планирует поездку? (от 1 до 4)")
+        except ValueError:
+            bot.send_message(message.chat.id, "Укажите время в формате ЧЧ:ММ, например 09:00.")
         return
 
     # Турист указывает количество человек
