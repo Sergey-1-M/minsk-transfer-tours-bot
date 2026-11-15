@@ -217,31 +217,17 @@ def notify_group_price(departure_id, exclude_telegram_id=None):
                 print(f"Не удалось отправить уведомление участнику {telegram_id}: {error}", flush=True)
 
 
-def get_or_create_departure(route_id, requested_date):
-    result = (
-        db.table("departures")
-        .select("*")
-        .eq("route_id", route_id)
-        .eq("departure_date", requested_date)
-        .eq("is_active", True)
-        .limit(1)
-        .execute()
-    )
-    if result.data:
-        return result.data[0]
-    result = (
-        db.table("departures")
-        .insert({
-            "route_id": route_id,
-            "departure_date": requested_date,
-            "capacity": 4,
-            "is_active": True,
-            "notes": "Группа создана по заявке туриста"
-        })
-        .execute()
-    )
+def create_departure(route_id, requested_date, requested_time):
+    # Каждый инициатор открывает отдельную группу; группы одной даты не объединяются.
+    result = db.table("departures").insert({
+        "route_id": route_id,
+        "departure_date": requested_date,
+        "departure_time": requested_time,
+        "capacity": 4,
+        "is_active": True,
+        "notes": "Группа создана туристом; время предварительное"
+    }).execute()
     return result.data[0] if result.data else None
-
 
 def main_menu(chat_id):
     try:
