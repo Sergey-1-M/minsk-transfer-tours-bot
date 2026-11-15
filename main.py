@@ -170,9 +170,11 @@ def notify_group_price(departure_id, exclude_telegram_id=None):
         return
     route = get_route(departure["route_id"])
     route_name = route["name"] if route else "Экскурсия"
+    time_text = departure.get("departure_time") or "уточняется"
     group_message = (
         f"Группа на экскурсию «{route_name}»\n"
         f"Дата: {departure['departure_date']}\n"
+        f"Время начала: {time_text}\n"
         f"Участников: {people} из 4\n"
         f"Свободно мест: {max(0, 4 - people)}\n"
         f"Стоимость: {price} BYN с человека."
