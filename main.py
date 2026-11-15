@@ -676,6 +676,14 @@ def show_admin_dates(chat_id):
     departures = result.data or []
 
     if not departures:
+        bot.send_message(chat_id, "Будущих поездок пока нет.")
+        return
+
+    for departure in departures:
+        route = get_route(departure["route_id"])
+        route_name = route["name"] if route else "Маршрут"
+        taken = get_taken_places(departure["id"])
+        available = int(departure["capacity"]) - taken
         time_text = departure.get("departure_time") or "не указано"
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton(
