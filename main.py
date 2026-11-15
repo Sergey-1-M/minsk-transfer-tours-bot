@@ -1,9 +1,5 @@
 
 import os
-import re
-import smtplib
-import ssl
-from email.message import EmailMessage
 from datetime import date, datetime
 import traceback
 from flask import Flask, request
@@ -17,11 +13,6 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 ADMIN_ID = 1255152509
 
-SMTP_HOST = os.environ.get("SMTP_HOST")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-FROM_EMAIL = os.environ.get("FROM_EMAIL") or SMTP_USER
 
 if not TOKEN or not SUPABASE_URL or not SUPABASE_KEY:
     raise RuntimeError("Не заданы BOT_TOKEN, SUPABASE_URL или SUPABASE_KEY в Render")
@@ -94,36 +85,6 @@ def format_departure_time(value, default="уточняется"):
     return str(value)[:5] if value else default
 
 
-def send_email(recipient, subject, body):
-    """Отправляет письмо одному туристу; сбой почты не отменяет бронирование."""
-    if not recipient:
-        return False
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL]):
-        print("Email не отправлен: SMTP-настройки не заданы в Render.", flush=True)
-        return False
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = FROM_EMAIL
-    message["To"] = recipient
-    message.set_content(body)
-    try:
-        if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20, context=ssl.create_default_context()) as server:
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.send_message(message)
-        else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
-                server.ehlo()
-                server.starttls(context=ssl.create_default_context())
-                server.ehlo()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.send_message(message)
-        return True
-    except Exception as error:
-        print(f"Не удалось отправить Email на {recipient}: {error}", flush=True)
-        return False
-
-
 def notify_booking_status(booking_id, status):
     result = db.table("bookings").select("*").eq("id", booking_id).limit(1).execute()
     if not result.data:
@@ -134,21 +95,9 @@ def notify_booking_status(booking_id, status):
     departure = get_departure(booking["departure_id"]) if booking.get("departure_id") else None
     date_text = departure["departure_date"] if departure else (booking.get("requested_date") or "уточняется")
     time_text = format_departure_time(departure.get("departure_time") if departure else None)
-    if status == "confirmed":
-        subject = f"Бронирование подтверждено — {route_name}"
-        status_text = "Организатор подтвердил вашу заявку."
-    else:
-        subject = f"Изменение статуса заявки — {route_name}"
-        status_text = "Ваша заявка отменена. Если это произошло по ошибке, свяжитесь с организатором."
-    body = (
-        f"{status_text}\\n"
-        f"Маршрут: {route_name}\\n"
-        f"Дата: {date_text}\\n"
-        f"Время начала: {time_text or 'уточняется'}\\n"
-        f"Количество туристов: {booking['tourist_count']}\\n\\n"
-        "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
-    )
-    send_email(booking.get("email"), subject, body)
+    status_text = "Организатор подтвердил вашу заявку." if status == "confirmed" else "Ваша заявка отменена. Если это произошло по ошибке, свяжитесь с организатором."
+    body = (f"{status_text}\nМаршрут: {route_name}\nДата: {date_text}\nВремя начала: {time_text}\n"
+            f"Количество туристов: {booking['tourist_count']}\n\nMinsk Transfer Tours — местный организатор экскурсий.")
     telegram_id = booking.get("telegram_id")
     if telegram_id:
         try:
@@ -161,97 +110,58 @@ def notify_departure_time(departure_id):
     departure = get_departure(departure_id)
     if not departure:
         return
-    result = (
-        db.table("bookings").select("email, telegram_id")
-        .eq("departure_id", departure_id)
-        .in_("status", ["pending", "confirmed"]).execute()
-    )
+    result = (db.table("bookings").select("telegram_id").eq("departure_id", departure_id)
+              .in_("status", ["pending", "confirmed"]).execute())
     route = get_route(departure["route_id"])
     route_name = route["name"] if route else "Экскурсия"
-    time_text = format_departure_time(departure.get("departure_time"))
-    subject = f"Изменилось время поездки — {route_name}"
-    body = (
-        f"В поездке «{route_name}» изменилось время начала.\n"
-        f"Дата: {departure['departure_date']}\n"
-        f"Новое время: {time_text}\n\n"
-        "Организатор Minsk Transfer Tours согласует с вами остальные детали."
-    )
-    for booking in (result.data or []):
-        send_email(booking.get("email"), subject, body)
-        telegram_id = booking.get("telegram_id")
-        if telegram_id:
+    body = (f"В поездке «{route_name}» изменилось время начала.\n"
+            f"Дата: {departure['departure_date']}\nНовое время: {format_departure_time(departure.get('departure_time'))}\n\n"
+            "Организатор Minsk Transfer Tours согласует с вами остальные детали.")
+    for item in result.data or []:
+        if item.get("telegram_id"):
             try:
-                bot.send_message(int(telegram_id), body)
+                bot.send_message(int(item["telegram_id"]), body)
             except Exception as error:
-                print(f"Не удалось отправить Telegram-уведомление {telegram_id}: {error}", flush=True)
+                print(f"Не удалось отправить Telegram-уведомление: {error}", flush=True)
 
 
 def notify_group_price(departure_id, exclude_telegram_id=None):
     departure = get_departure(departure_id)
     if not departure:
         return
-    result = (
-        db.table("bookings")
-        .select("tourist_count, telegram_id, email")
-        .eq("departure_id", departure_id)
-        .in_("status", ["pending", "confirmed"])
-        .execute()
-    )
+    result = (db.table("bookings").select("tourist_count, telegram_id").eq("departure_id", departure_id)
+              .in_("status", ["pending", "confirmed"]).execute())
     bookings = result.data or []
-    people = sum(int(item["tourist_count"]) for item in bookings)
-    if not people:
+    people = sum(int(x["tourist_count"]) for x in bookings)
+    route = get_route(departure["route_id"])
+    route_name = route["name"] if route else "Экскурсия"
+    if people == 0:
+        if "Группа создана туристом" in (departure.get("notes") or ""):
+            db.table("departures").update({"is_active": False}).eq("id", departure_id).execute()
+        try:
+            bot.send_message(ADMIN_ID, f"В группе №{departure_id} больше нет активных участников: {route_name}, {departure['departure_date']}.")
+        except Exception as error:
+            print(f"Не удалось уведомить администратора: {error}", flush=True)
         return
     price = get_group_price(departure["route_id"], people)
     if price is None:
         print(f"Не найден тариф route_id={departure['route_id']}, group_size={people}", flush=True)
         return
-    route = get_route(departure["route_id"])
-    route_name = route["name"] if route else "Экскурсия"
-    time_text = departure.get("departure_time") or "уточняется"
-    group_message = (
-        f"Группа на экскурсию «{route_name}»\n"
-        f"Дата: {departure['departure_date']}\n"
-        f"Время начала: {time_text}\n"
-        f"Участников: {people} из 4\n"
-        f"Свободно мест: {max(0, 4 - people)}\n"
-        f"Стоимость: {price} BYN с человека."
-    )
-
-    # Организатор получает отдельное уведомление о составе группы и актуальной цене.
+    body = (f"Обновление поездки «{route_name}».\nДата: {departure['departure_date']}\n"
+            f"Время начала: {format_departure_time(departure.get('departure_time'))}\n"
+            f"Участников: {people} из 4, свободно мест: {max(0, 4-people)}\n"
+            f"Стоимость: {price} BYN с человека.")
     try:
-        bot.send_message(ADMIN_ID, "Обновление группы\n" + group_message)
+        bot.send_message(ADMIN_ID, f"Обновление группы №{departure_id}\n" + body)
     except Exception as error:
-        print(f"Не удалось отправить уведомление организатору: {error}", flush=True)
-
-    # Участники видят только состав группы и цену, без чужих контактов.
+        print(f"Не удалось уведомить администратора: {error}", flush=True)
     for item in bookings:
-        telegram_id = item.get("telegram_id")
-        if telegram_id and int(telegram_id) == exclude_telegram_id:
-            continue
-        if item.get("email"):
-            send_email(
-                item["email"],
-                f"Обновление поездки «{route_name}» — {departure['departure_date']}",
-                f"В вашей группе обновилась информация.\n"
-                f"Маршрут: {route_name}\n"
-                f"Дата: {departure['departure_date']}\n"
-                f"Время начала: {time_text}\n"
-                f"Участников: {people} из 4\n"
-                f"Свободно мест: {max(0, 4 - people)}\n"
-                f"Новая стоимость: {price} BYN с человека.\n\n"
-                "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
-            )
-        if telegram_id:
+        tid = item.get("telegram_id")
+        if tid and (exclude_telegram_id is None or int(tid) != int(exclude_telegram_id)):
             try:
-                bot.send_message(
-                    int(telegram_id),
-                    f"Изменение стоимости поездки «{route_name}» на {departure['departure_date']}.\n"
-                    f"Время начала: {time_text}.\n"
-                    f"В группе: {people} из 4 человек.\n"
-                    f"Новая стоимость: {price} BYN с человека."
-                )
+                bot.send_message(int(tid), body)
             except Exception as error:
-                print(f"Не удалось отправить уведомление участнику {telegram_id}: {error}", flush=True)
+                print(f"Не удалось уведомить участника {tid}: {error}", flush=True)
 
 
 def create_departure(route_id, requested_date, requested_time):
@@ -308,13 +218,19 @@ def main_menu(chat_id):
 @bot.message_handler(commands=["start"])
 def start(message):
     user_states.pop(message.from_user.id, None)
-    main_menu(message.chat.id)
+    if is_admin(message.from_user.id):
+        admin_menu(message)
+    else:
+        main_menu(message.chat.id)
 
 
 @bot.message_handler(commands=["tours"])
 def tours_command(message):
     user_states.pop(message.from_user.id, None)
-    main_menu(message.chat.id)
+    if is_admin(message.from_user.id):
+        admin_menu(message)
+    else:
+        main_menu(message.chat.id)
 
 
 def format_join_prices(route_id, taken, available):
@@ -430,8 +346,9 @@ def help_command(message):
         "/dates — посмотреть опубликованные даты и свободные места.\n"
         "Выберите маршрут, затем доступную поездку или откройте собственную группу. "
         "Для своей группы укажите дату и предварительное время начала. "
-        "При бронировании потребуются имя, телефон и Email. "
-        "Все участники получают важные обновления по Email."
+        "При бронировании потребуются имя и номер телефона. "
+        "Подтверждения и изменения по поездке приходят в Telegram. "
+        "Если Telegram для связи недоступен, организатор свяжется с вами по телефону."
     )
 
 
@@ -439,14 +356,66 @@ def help_command(message):
 def admin_menu(message):
     if not is_admin(message.from_user.id):
         return
+    show_admin_menu(message.chat.id)
 
+
+def show_admin_menu(chat_id):
     keyboard = types.InlineKeyboardMarkup(row_width=1)
     keyboard.add(
-        types.InlineKeyboardButton("Добавить дату поездки", callback_data="admin:add"),
+        types.InlineKeyboardButton("Группы и участники", callback_data="admin:groups"),
         types.InlineKeyboardButton("Новые заявки", callback_data="admin:requests"),
-        types.InlineKeyboardButton("Расписание", callback_data="admin:dates")
+        types.InlineKeyboardButton("Расписание", callback_data="admin:dates"),
+        types.InlineKeyboardButton("Добавить дату поездки", callback_data="admin:add")
     )
-    bot.send_message(message.chat.id, "Панель организатора:", reply_markup=keyboard)
+    bot.send_message(chat_id, "Панель организатора Minsk Transfer Tours:", reply_markup=keyboard)
+
+
+def show_admin_groups(chat_id):
+    result = (db.table("departures").select("*").eq("is_active", True)
+              .gte("departure_date", str(date.today())).order("departure_date").execute())
+    departures = result.data or []
+    if not departures:
+        bot.send_message(chat_id, "Активных будущих групп пока нет.")
+        return
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    lines = ["ГРУППЫ И УЧАСТНИКИ"]
+    for dep in departures:
+        route = get_route(dep["route_id"])
+        name = route["name"] if route else "Маршрут"
+        taken = get_taken_places(dep["id"])
+        lines.append(f"\n№{dep['id']} — {name}\n{dep['departure_date']} · {format_departure_time(dep.get('departure_time'))}\nЗанято: {taken}, свободно: {max(0, int(dep.get('capacity',4))-taken)}")
+        keyboard.add(types.InlineKeyboardButton(f"Открыть группу №{dep['id']}", callback_data=f"admin:group:{dep['id']}"))
+    keyboard.add(types.InlineKeyboardButton("Главное меню", callback_data="admin:home"))
+    bot.send_message(chat_id, "\n".join(lines), reply_markup=keyboard)
+
+
+def show_admin_group(chat_id, departure_id):
+    dep = get_departure(departure_id)
+    if not dep:
+        bot.send_message(chat_id, "Группа не найдена.")
+        return
+    route = get_route(dep["route_id"])
+    route_name = route["name"] if route else "Маршрут"
+    result = (db.table("bookings").select("*").eq("departure_id", departure_id)
+              .in_("status", ["pending", "confirmed"]).order("created_at").execute())
+    bookings = result.data or []
+    people = sum(int(x["tourist_count"]) for x in bookings)
+    cap = int(dep.get("capacity",4))
+    price = get_group_price(dep["route_id"], people) if people else None
+    lines = [f"ГРУППА №{departure_id}", f"Маршрут: {route_name}", f"Дата: {dep['departure_date']}",
+             f"Время: {format_departure_time(dep.get('departure_time'))}", f"Участников: {people} из {cap}",
+             f"Свободно мест: {max(0,cap-people)}", f"Цена: {price} BYN с человека" if price is not None else "Цена: пока не рассчитывается", ""]
+    keyboard = types.InlineKeyboardMarkup(row_width=1)
+    for booking in bookings:
+        status = "подтверждена" if booking.get("status") == "confirmed" else "ожидает подтверждения"
+        tg = "Telegram доступен" if booking.get("telegram_id") else "Telegram нет — связаться вручную"
+        lines.append(f"Заявка №{booking['id']} — {booking.get('name') or 'без имени'}\nМест: {booking['tourist_count']} · {status}\nКонтакт: {booking.get('contact') or 'не указан'}\n{tg}")
+        keyboard.add(
+            types.InlineKeyboardButton(f"Изменить число мест — №{booking['id']}", callback_data=f"admin:editcount:{booking['id']}"),
+            types.InlineKeyboardButton(f"Отменить заявку №{booking['id']}", callback_data=f"cancel:{booking['id']}")
+        )
+    keyboard.add(types.InlineKeyboardButton("Назад к группам", callback_data="admin:groups"))
+    bot.send_message(chat_id, "\n".join(lines), reply_markup=keyboard)
 
 
 def show_departures(chat_id, route_id):
@@ -625,6 +594,28 @@ def callbacks(call):
         )
         return
 
+    if data == "admin:home" and is_admin(user_id):
+        show_admin_menu(call.message.chat.id)
+        return
+
+    if data == "admin:groups" and is_admin(user_id):
+        show_admin_groups(call.message.chat.id)
+        return
+
+    if data.startswith("admin:group:") and is_admin(user_id):
+        show_admin_group(call.message.chat.id, int(data.split(":")[2]))
+        return
+
+    if data.startswith("admin:editcount:") and is_admin(user_id):
+        bid = int(data.split(":")[2])
+        res = db.table("bookings").select("*").eq("id", bid).limit(1).execute()
+        if not res.data or res.data[0].get("status") not in ["pending", "confirmed"]:
+            bot.send_message(call.message.chat.id, "Активная заявка не найдена.")
+            return
+        user_states[user_id] = {"stage": "admin_edit_count", "booking_id": bid}
+        bot.send_message(call.message.chat.id, f"Сейчас мест в заявке: {res.data[0]['tourist_count']}. Введите новое количество (от 1 до 4).")
+        return
+
     if data == "admin:dates" and is_admin(user_id):
         show_admin_dates(call.message.chat.id)
         return
@@ -641,16 +632,22 @@ def callbacks(call):
 
     if data.startswith("cancel:") and is_admin(user_id):
         booking_id = int(data.split(":")[1])
-        selected = db.table("bookings").select("departure_id").eq("id", booking_id).limit(1).execute()
-        db.table("bookings").update(
-            {"status": "cancelled"}
-        ).eq("id", booking_id).execute()
+        selected = db.table("bookings").select("*").eq("id", booking_id).limit(1).execute()
+        if not selected.data:
+            bot.send_message(call.message.chat.id, "Заявка не найдена.")
+            return
+        booking = selected.data[0]
+        if booking.get("status") == "cancelled":
+            bot.send_message(call.message.chat.id, f"Заявка №{booking_id} уже отменена.")
+            return
+        departure_id = booking.get("departure_id")
+        db.table("bookings").update({"status": "cancelled"}).eq("id", booking_id).execute()
         notify_booking_status(booking_id, "cancelled")
-        departure_id = selected.data[0].get("departure_id") if selected.data else None
         if departure_id:
             notify_group_price(departure_id)
-
-        bot.send_message(call.message.chat.id, f"Заявка №{booking_id} отменена.")
+        bot.send_message(call.message.chat.id, f"Заявка №{booking_id} отменена. Места освобождены, цена пересчитана.")
+        if departure_id:
+            show_admin_group(call.message.chat.id, departure_id)
         return
 
 
@@ -726,9 +723,10 @@ def show_admin_dates(chat_id):
         available = int(departure["capacity"]) - taken
         time_text = format_departure_time(departure.get("departure_time"), "не указано")
         keyboard = types.InlineKeyboardMarkup()
-        keyboard.add(types.InlineKeyboardButton(
-            "Изменить время", callback_data=f"admin:time:{departure['id']}"
-        ))
+        keyboard.add(
+            types.InlineKeyboardButton("Изменить время", callback_data=f"admin:time:{departure['id']}"),
+            types.InlineKeyboardButton("Управлять группой", callback_data=f"admin:group:{departure['id']}")
+        )
         bot.send_message(
             chat_id,
             f'№{departure["id"]} — {route_name}\n'
@@ -777,8 +775,38 @@ def handle_text(message):
             bot.send_message(message.chat.id, "Не удалось изменить время. Проверьте журнал Render.")
         return
 
+    if stage == "admin_edit_count" and is_admin(user_id):
+        try:
+            new_count = int(text)
+            bid = state["booking_id"]
+            res = db.table("bookings").select("*").eq("id", bid).limit(1).execute()
+            if not res.data:
+                raise ValueError("Заявка не найдена.")
+            booking = res.data[0]
+            if booking.get("status") not in ["pending", "confirmed"]:
+                raise ValueError("Изменять можно только активную заявку.")
+            did = booking.get("departure_id")
+            dep = get_departure(did) if did else None
+            if not dep:
+                raise ValueError("Группа не найдена.")
+            other_places = get_taken_places(did) - int(booking["tourist_count"])
+            maximum = min(4, int(dep.get("capacity",4))) - other_places
+            if new_count < 1 or new_count > maximum:
+                raise ValueError(f"Для этой заявки можно указать от 1 до {maximum} мест.")
+            db.table("bookings").update({"tourist_count": new_count}).eq("id", bid).execute()
+            user_states.pop(user_id, None)
+            notify_group_price(did)
+            bot.send_message(message.chat.id, f"Количество мест в заявке №{bid} изменено. Состав группы и цена пересчитаны.")
+            show_admin_group(message.chat.id, did)
+        except ValueError as error:
+            bot.send_message(message.chat.id, str(error) or "Введите целое число.")
+        except Exception as error:
+            print(f"Ошибка изменения количества мест: {error}", flush=True)
+            bot.send_message(message.chat.id, "Не удалось изменить заявку. Проверьте логи Render.")
+        return
+
     # Администратор добавляет дату поездки
-    if stage == "admin_date" and is_admin(user_id):
+
         try:
             parts = text.split()
             if len(parts) != 2:
@@ -886,47 +914,25 @@ def handle_text(message):
         )
         return
 
-    # Турист указывает телефон/контакт.
+    # После телефона заявка сразу сохраняется; Email не требуется.
     if stage == "contact":
         state["contact"] = text
-        state["stage"] = "email"
-        bot.send_message(
-            message.chat.id,
-            "Укажите ваш Email. На него будут приходить подтверждение бронирования "
-            "и все важные обновления по поездке."
-        )
-        return
-
-    # Email обязателен: каждый участник получает письма об изменениях группы.
-    if stage == "email":
         try:
-            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", text):
-                bot.send_message(message.chat.id, "Проверьте адрес Email и введите его ещё раз.")
-                return
-
-            state["email"] = text
             departure_id = state.get("departure_id")
             if not departure_id and state.get("requested_date"):
-                departure = create_departure(
-                    state["route_id"], state["requested_date"], state["requested_time"]
-                )
-                if not departure:
+                dep = create_departure(state["route_id"], state["requested_date"], state["requested_time"])
+                if not dep:
                     raise RuntimeError("Не удалось создать группу на выбранную дату")
-                departure_id = departure["id"]
-
+                departure_id = dep["id"]
             booking = {
-                "route_id": state["route_id"],
-                "departure_id": departure_id,
-                "requested_date": state.get("requested_date"),
-                "tourist_count": state["tourist_count"],
-                "name": state["name"],
-                "contact": state["contact"],
-                "email": state["email"],
-                "telegram_id": user_id,
-                "status": "pending"
+                "route_id": state["route_id"], "departure_id": departure_id,
+                "requested_date": state.get("requested_date"), "tourist_count": state["tourist_count"],
+                "name": state["name"], "contact": state["contact"],
+                "telegram_id": user_id, "status": "pending"
             }
-            db.table("bookings").insert(booking).execute()
-
+            inserted = db.table("bookings").insert(booking).execute()
+            if not inserted.data:
+                raise RuntimeError("Supabase не вернул созданную заявку")
             route = get_route(state["route_id"])
             route_name = route["name"] if route else "Маршрут"
             group_total = get_taken_places(departure_id) if departure_id else state["tourist_count"]
@@ -934,56 +940,24 @@ def handle_text(message):
             price_text = f"{current_price} BYN с человека" if current_price is not None else "уточняется организатором"
             if departure_id:
                 notify_group_price(departure_id, exclude_telegram_id=user_id)
-
-            departure = get_departure(departure_id) if departure_id else None
-            departure_text = departure["departure_date"] if departure else (state.get("requested_date") or "Дата не указана")
-            time_text = format_departure_time(departure.get("departure_time") if departure else state.get("requested_time"))
-
-            confirmation = (
-                "Спасибо! Ваша заявка принята.\n"
-                "Организатор свяжется с вами для согласования деталей.\n"
-                f"Маршрут: {route_name}\n"
-                f"Дата: {departure_text}\n"
-                f"Предварительное время начала: {time_text}\n"
-                f"Количество туристов: {state['tourist_count']}\n"
-                f"Текущая стоимость: {price_text}"
-            )
+            dep = get_departure(departure_id) if departure_id else None
+            departure_text = dep["departure_date"] if dep else (state.get("requested_date") or "Дата не указана")
+            time_text = format_departure_time(dep.get("departure_time") if dep else state.get("requested_time"))
             if not is_admin(user_id):
-                bot.send_message(message.chat.id, confirmation)
-
-            send_email(
-                state["email"],
-                f"Заявка принята — {route_name}",
-                f"Здравствуйте, {state['name']}!\n\n"
-                "Ваша заявка в Minsk Transfer Tours принята.\n"
-                f"Маршрут: {route_name}\n"
-                f"Дата: {departure_text}\n"
-                f"Предварительное время начала: {time_text}\n"
-                f"Количество туристов: {state['tourist_count']}\n"
-                f"Текущая стоимость: {price_text}\n\n"
-                "Организатор свяжется с вами для согласования деталей.\n\n"
-                "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
-            )
-
-            admin_text = (
+                bot.send_message(message.chat.id,
+                    "Спасибо! Ваша заявка принята и ожидает подтверждения организатором.\n"
+                    f"Маршрут: {route_name}\nДата: {departure_text}\nВремя: {time_text}\n"
+                    f"Туристов: {state['tourist_count']}\nСтоимость: {price_text}\n\n"
+                    "Обновления по поездке будут приходить сюда, в Telegram.")
+            bot.send_message(ADMIN_ID,
                 "Новая заявка на экскурсию!\n\n"
-                f"Маршрут: {route_name}\n"
-                f"Дата: {departure_text}\n"
-                f"Время начала: {time_text}\n"
-                f"Туристов: {state['tourist_count']}\n"
-                f"Имя: {state['name']}\n"
-                f"Контакт: {state['contact']}\n"
-                f"Email: {state['email']}"
-            )
-            bot.send_message(ADMIN_ID, admin_text)
+                f"Группа №{departure_id or 'не создана'}\nМаршрут: {route_name}\nДата: {departure_text}\n"
+                f"Время: {time_text}\nТуристов: {state['tourist_count']}\nИмя: {state['name']}\n"
+                f"Контакт: {state['contact']}\nTelegram ID: {user_id}")
             user_states.pop(user_id, None)
-
         except Exception as error:
             print("Ошибка сохранения заявки:", error, flush=True)
-            bot.send_message(
-                message.chat.id,
-                "Не удалось сохранить заявку. Пожалуйста, попробуйте позже или свяжитесь с организатором."
-            )
+            bot.send_message(message.chat.id, "Не удалось сохранить заявку. Пожалуйста, попробуйте позже или свяжитесь с организатором.")
         return
 
 @app.route("/", methods=["GET"])
@@ -1027,7 +1001,10 @@ def webhook():
             if command == "/start":
                 print("Webhook: прямой вызов обработчика /start.", flush=True)
                 user_states.pop(update.message.from_user.id, None)
-                main_menu(update.message.chat.id)
+                if is_admin(update.message.from_user.id):
+                    admin_menu(update.message)
+                else:
+                    main_menu(update.message.chat.id)
             elif command == "/admin":
                 print("Webhook: прямой вызов обработчика /admin.", flush=True)
                 admin_menu(update.message)
