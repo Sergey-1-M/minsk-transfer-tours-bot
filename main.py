@@ -355,7 +355,7 @@ def show_all_dates(chat_id):
                 "taken": taken,
                 "available": available,
                 "route_name": route_name,
-                "time": departure.get("departure_time") or ""
+                "time": str(departure.get("departure_time") or "")[:5]
             })
 
         if not available_departures:
@@ -424,9 +424,10 @@ def help_command(message):
         "Как пользоваться ботом:\n"
         "/tours — посмотреть экскурсионные маршруты и выбрать поездку.\n"
         "/dates — посмотреть опубликованные даты и свободные места.\n"
-        "Выберите маршрут, затем дату или оставьте заявку на новую дату. "
-        "Укажите количество туристов, имя и контакт для связи. "
-        "Организатор свяжется с вами для подтверждения."
+        "Выберите маршрут, затем доступную поездку или откройте собственную группу. "
+        "Для своей группы укажите дату и предварительное время начала. "
+        "При бронировании потребуются имя, телефон и Email. "
+        "Все участники получают важные обновления по Email."
     )
 
 
@@ -477,7 +478,7 @@ def show_departures(chat_id, route_id):
             continue
 
         prices_text = format_join_prices(route_id, taken, available)
-        time_text = departure.get("departure_time") or ""
+        time_text = str(departure.get("departure_time") or "")[:5]
         date_lines.append(
             f'\n{departure["departure_date"]} {time_text} — в группе {taken}/4, свободно {available}\n'
             f'{prices_text}'
@@ -719,7 +720,7 @@ def show_admin_dates(chat_id):
         route_name = route["name"] if route else "Маршрут"
         taken = get_taken_places(departure["id"])
         available = int(departure["capacity"]) - taken
-        time_text = departure.get("departure_time") or "не указано"
+        time_text = str(departure.get("departure_time") or "не указано")[:5]
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton(
             "Изменить время", callback_data=f"admin:time:{departure['id']}"
