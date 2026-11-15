@@ -802,12 +802,30 @@ def handle_text(message):
         )
         return
 
-    # Турист указывает контакт, заявка сохраняется в базе
+    # Турист указывает телефон/контакт.
     if stage == "contact":
+        state["contact"] = text
+        state["stage"] = "email"
+        bot.send_message(
+            message.chat.id,
+            "Укажите ваш Email. На него будут приходить подтверждение бронирования "
+            "и все важные обновления по поездке."
+        )
+        return
+
+    # Email обязателен: каждый участник получает письма об изменениях группы.
+    if stage == "email":
         try:
+            if not re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", text):
+                bot.send_message(message.chat.id, "Проверьте адрес Email и введите его ещё раз.")
+                return
+
+            state["email"] = text
             departure_id = state.get("departure_id")
             if not departure_id and state.get("requested_date"):
-                departure = get_or_create_departure(state["route_id"], state["requested_date"])
+                departure = create_departure(
+                    state["route_id"], state["requested_date"], state["requested_time"]
+                )
                 if not departure:
                     raise RuntimeError("Не удалось создать группу на выбранную дату")
                 departure_id = departure["id"]
@@ -818,11 +836,11 @@ def handle_text(message):
                 "requested_date": state.get("requested_date"),
                 "tourist_count": state["tourist_count"],
                 "name": state["name"],
-                "contact": text,
+                "contact": state["contact"],
+                "email": state["email"],
                 "telegram_id": user_id,
                 "status": "pending"
             }
-
             db.table("bookings").insert(booking).execute()
 
             route = get_route(state["route_id"])
@@ -833,31 +851,46 @@ def handle_text(message):
             if departure_id:
                 notify_group_price(departure_id, exclude_telegram_id=user_id)
 
-            departure_text = state.get("requested_date") or "Дата не указана"
-            if state["departure_id"]:
-                departure = get_departure(state["departure_id"])
-                if departure:
-                    departure_text = departure["departure_date"]
+            departure = get_departure(departure_id) if departure_id else None
+            departure_text = departure["departure_date"] if departure else (state.get("requested_date") or "Дата не указана")
+            time_text = (departure.get("departure_time") if departure else state.get("requested_time")) or "уточняется"
 
-            # Подтверждение заявки отправляется заказчику, но не дублируется в чате организатора.
+            confirmation = (
+                "Спасибо! Ваша заявка принята.\\n"
+                "Организатор свяжется с вами для согласования деталей.\\n"
+                f"Маршрут: {route_name}\\n"
+                f"Дата: {departure_text}\\n"
+                f"Предварительное время начала: {time_text}\\n"
+                f"Количество туристов: {state['tourist_count']}\\n"
+                f"Текущая стоимость: {price_text}"
+            )
             if not is_admin(user_id):
-                bot.send_message(
-                    message.chat.id,
-                    "Спасибо! Ваша заявка принята.\n"
-                    f"Организатор свяжется с вами для подтверждения.\n"
-                    f"Желаемая дата: {departure_text}\n"
-                    f"Текущая стоимость: {price_text}"
-                )
+                bot.send_message(message.chat.id, confirmation)
 
-            admin_text = (
-                "Новая заявка на экскурсию!\n\n"
-                f"Маршрут: {route_name}\n"
-                f"Дата: {departure_text}\n"
-                f'Туристов: {state["tourist_count"]}\n'
-                f'Имя: {state["name"]}\n'
-                f"Контакт: {text}"
+            send_email(
+                state["email"],
+                f"Заявка принята — {route_name}",
+                f"Здравствуйте, {state['name']}!\\n\\n"
+                "Ваша заявка в Minsk Transfer Tours принята.\\n"
+                f"Маршрут: {route_name}\\n"
+                f"Дата: {departure_text}\\n"
+                f"Предварительное время начала: {time_text}\\n"
+                f"Количество туристов: {state['tourist_count']}\\n"
+                f"Текущая стоимость: {price_text}\\n\\n"
+                "Организатор свяжется с вами для согласования деталей.\\n\\n"
+                "Minsk Transfer Tours — местный организатор экскурсий. Работаем напрямую, без агрегаторов и посредников."
             )
 
+            admin_text = (
+                "Новая заявка на экскурсию!\\n\\n"
+                f"Маршрут: {route_name}\\n"
+                f"Дата: {departure_text}\\n"
+                f"Время начала: {time_text}\\n"
+                f"Туристов: {state['tourist_count']}\\n"
+                f"Имя: {state['name']}\\n"
+                f"Контакт: {state['contact']}\\n"
+                f"Email: {state['email']}"
+            )
             bot.send_message(ADMIN_ID, admin_text)
             user_states.pop(user_id, None)
 
@@ -868,7 +901,6 @@ def handle_text(message):
                 "Не удалось сохранить заявку. Пожалуйста, попробуйте позже или свяжитесь с организатором."
             )
         return
-
 
 @app.route("/", methods=["GET"])
 def home():
