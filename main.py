@@ -573,6 +573,20 @@ def callbacks(call):
         show_pending_requests(call.message.chat.id)
         return
 
+    if data.startswith("admin:time:") and is_admin(user_id):
+        departure_id = int(data.split(":")[2])
+        departure = get_departure(departure_id)
+        if not departure:
+            bot.send_message(call.message.chat.id, "Поездка не найдена.")
+            return
+        user_states[user_id] = {"stage": "admin_edit_time", "departure_id": departure_id}
+        bot.send_message(
+            call.message.chat.id,
+            f"Текущее время: {departure.get('departure_time') or 'не указано'}.\\n"
+            "Введите новое время в формате ЧЧ:ММ, например 09:30."
+        )
+        return
+
     if data == "admin:dates" and is_admin(user_id):
         show_admin_dates(call.message.chat.id)
         return
@@ -662,21 +676,19 @@ def show_admin_dates(chat_id):
     departures = result.data or []
 
     if not departures:
-        bot.send_message(chat_id, "Будущих поездок пока нет.")
-        return
-
-    for departure in departures:
-        route = get_route(departure["route_id"])
-        route_name = route["name"] if route else "Маршрут"
-        taken = get_taken_places(departure["id"])
-        available = int(departure["capacity"]) - taken
-
+        time_text = departure.get("departure_time") or "не указано"
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.add(types.InlineKeyboardButton(
+            "Изменить время", callback_data=f"admin:time:{departure['id']}"
+        ))
         bot.send_message(
             chat_id,
-            f'№{departure["id"]} — {route_name}\n'
-            f'Дата: {departure["departure_date"]}\n'
-            f'Вместимость: {departure["capacity"]}\n'
-            f'Занято: {taken}, свободно: {available}'
+            f'№{departure["id"]} — {route_name}\\n'
+            f'Дата: {departure["departure_date"]}\\n'
+            f'Время начала: {time_text}\\n'
+            f'Вместимость: {departure["capacity"]}\\n'
+            f'Занято: {taken}, свободно: {available}',
+            reply_markup=keyboard
         )
 
 
