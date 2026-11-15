@@ -708,6 +708,27 @@ def handle_text(message):
 
     stage = state.get("stage")
 
+    # Организатор корректирует предварительное время группы.
+    if stage == "admin_edit_time" and is_admin(user_id):
+        try:
+            parsed_time = datetime.strptime(text, "%H:%M").time()
+            departure_id = state["departure_id"]
+            db.table("departures").update({
+                "departure_time": parsed_time.strftime("%H:%M:%S")
+            }).eq("id", departure_id).execute()
+            user_states.pop(user_id, None)
+            notify_departure_time(departure_id)
+            bot.send_message(
+                message.chat.id,
+                "Время поездки обновлено. Участники получили уведомления по Telegram и Email (если почта настроена)."
+            )
+        except ValueError:
+            bot.send_message(message.chat.id, "Укажите время в формате ЧЧ:ММ, например 09:30.")
+        except Exception as error:
+            print(f"Не удалось изменить время поездки: {error}", flush=True)
+            bot.send_message(message.chat.id, "Не удалось изменить время. Проверьте журнал Render.")
+        return
+
     # Администратор добавляет дату поездки
     if stage == "admin_date" and is_admin(user_id):
         try:
