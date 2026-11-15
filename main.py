@@ -252,8 +252,10 @@ def main_menu(chat_id):
         bot.send_message(
             chat_id,
             "Добро пожаловать в Minsk Transfer Tours!\n\n"
-            "Подберите поездку в мини-группе до 4 человек. "
-            "Выбирайте доступную дату или предложите свою.\n\n"
+            "Мы работаем напрямую, без агрегаторов и посредников: предлагаем выгодные цены, "
+            "мини-группы до 4 человек и внимательное отношение к каждому туристу.\\n"
+            "Без предоплаты. Напрямую с организатором. С заботой о вашем путешествии.\\n\\n"
+            "Выбирайте доступную дату или откройте собственную группу.\\n\\n"
             "Выберите маршрут:",
             reply_markup=keyboard
         )
@@ -510,6 +512,7 @@ def callbacks(call):
             "stage": "count",
             "route_id": departure["route_id"],
             "departure_id": departure_id,
+            "departure_time": departure.get("departure_time"),
             "available": available
         }
 
