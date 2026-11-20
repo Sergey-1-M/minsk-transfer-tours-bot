@@ -431,6 +431,7 @@ def show_admin_group(chat_id, departure_id):
             types.InlineKeyboardButton(f"Изменить число мест — №{booking['id']}", callback_data=f"admin:editcount:{booking['id']}"),
             types.InlineKeyboardButton(f"Отменить заявку №{booking['id']}", callback_data=f"cancel:{booking['id']}")
         )
+    keyboard.add(types.InlineKeyboardButton("🗑 Удалить группу", callback_data=f"admin:deletegroup:{departure_id}"))
     keyboard.add(types.InlineKeyboardButton("Назад к группам", callback_data="admin:groups"))
     bot.send_message(chat_id, "\n".join(lines), reply_markup=keyboard)
 
@@ -621,6 +622,53 @@ def callbacks(call):
 
     if data.startswith("admin:group:") and is_admin(user_id):
         show_admin_group(call.message.chat.id, int(data.split(":")[2]))
+        return
+
+    if data.startswith("admin:deletegroup:") and is_admin(user_id):
+        departure_id = int(data.split(":")[2])
+        dep = get_departure(departure_id)
+        if not dep or not dep.get("is_active"):
+            bot.send_message(call.message.chat.id, "Активная группа не найдена.")
+            return
+        route = get_route(dep["route_id"])
+        route_name = route["name"] if route else "Маршрут"
+        keyboard = types.InlineKeyboardMarkup(row_width=1)
+        keyboard.add(
+            types.InlineKeyboardButton("Да, удалить", callback_data=f"admin:confirmdelete:{departure_id}"),
+            types.InlineKeyboardButton("Назад к группе", callback_data=f"admin:group:{departure_id}")
+        )
+        bot.send_message(
+            call.message.chat.id,
+            f"⚠️ Удалить группу №{departure_id}?\\n\\nМаршрут: {route_name}\\nДата: {dep['departure_date']}\\n\\nВсе участники получат уведомление об отмене, группа перестанет отображаться.",
+            reply_markup=keyboard
+        )
+        return
+
+    if data.startswith("admin:confirmdelete:") and is_admin(user_id):
+        departure_id = int(data.split(":")[2])
+        dep = get_departure(departure_id)
+        if not dep or not dep.get("is_active"):
+            bot.send_message(call.message.chat.id, "Группа уже удалена или неактивна.")
+            return
+        route = get_route(dep["route_id"])
+        route_name = route["name"] if route else "Маршрут"
+        bookings = (db.table("bookings").select("*").eq("departure_id", departure_id)
+                    .in_("status", ["pending", "confirmed"]).execute()).data or []
+        db.table("departures").update({"is_active": False}).eq("id", departure_id).execute()
+        db.table("bookings").update({"status": "cancelled"}).eq("departure_id", departure_id).in_("status", ["pending", "confirmed"]).execute()
+        for booking in bookings:
+            tid = booking.get("telegram_id")
+            if tid:
+                try:
+                    bot.send_message(
+                        int(tid),
+                        f"⚠️ Поездка «{route_name}» на {dep['departure_date']} отменена организатором.\\nГруппа расформирована."
+                    )
+                except Exception as error:
+                    print(f"Не удалось уведомить участника об отмене группы {departure_id}: {error}", flush=True)
+                    report_manual_contact(booking, str(error))
+        bot.send_message(call.message.chat.id, f"Группа №{departure_id} удалена из активных. Участники уведомлены.")
+        show_admin_groups(call.message.chat.id)
         return
 
     if data.startswith("admin:editcount:") and is_admin(user_id):
